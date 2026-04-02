@@ -108,3 +108,15 @@ smart-talent-engine/
 ├── resumes/
 └── README.md
 
+---
+
+## Future Improvements
+
+* Improve accuracy of skill and experience detection
+* Add better scoring based on experience
+* Deploy the project online
+* Add login system for users
+
+---
+
+
