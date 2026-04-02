@@ -49,6 +49,7 @@ Libraries and Tools:
 AI / API:
 
 * Google Gemini API (used for extracting details and generating summary)
+* (IMP)currently the functions are not working due to limits in using API
 
 ---
 
