@@ -11,19 +11,14 @@ st.set_page_config(page_title="Smart Talent Engine", layout="wide")
 st.title("💼 Smart Talent Engine")
 st.caption("AI-powered Resume Screening & Ranking System")
 
-# Sidebar
 st.sidebar.header("⚙️ Filters")
 min_score = st.sidebar.slider("Minimum Score", 0, 100, 0)
 selected_skill = st.sidebar.text_input("Filter by Skill (optional)")
 
-# Job Description
 jd_text = st.text_area("📌 Enter Job Description", height=150)
 
-# Upload
 uploaded_files = st.file_uploader("📤 Upload Resumes", accept_multiple_files=True)
 
-
-# 🤖 AI Summary
 def generate_summary(profile, jd_text):
     prompt = f"""
     Job Description:
@@ -41,8 +36,6 @@ def generate_summary(profile, jd_text):
     except:
         return "Summary not available"
 
-
-# Process
 if st.button("🚀 Process Resumes"):
 
     if not jd_text:
@@ -94,7 +87,6 @@ if st.button("🚀 Process Resumes"):
 
             st.success("✅ Processing Complete")
 
-            # Metrics
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Candidates", len(df))
             col2.metric("Top Score", f"{df['score'].max()} %")
@@ -102,7 +94,6 @@ if st.button("🚀 Process Resumes"):
 
             st.divider()
 
-            # Top 5
             st.subheader("🏆 Top Candidates")
             top = df.head(5)
 
@@ -128,11 +119,9 @@ if st.button("🚀 Process Resumes"):
 
             st.divider()
 
-            # Table
             st.subheader("📋 All Candidates")
             st.dataframe(df)
 
-            # CSV
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button("📥 Download CSV", csv, "results.csv")
 

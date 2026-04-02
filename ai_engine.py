@@ -4,9 +4,7 @@ import re
 
 API_KEY = "AIzaSyDf_gt_9Xq_LGMKrwFkof0O7fAcIsNPfTI"
 
-# ✅ FINAL WORKING MODEL
 URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-
 
 def call_gemini(prompt):
     headers = {
@@ -35,7 +33,6 @@ def call_gemini(prompt):
     except Exception as e:
         print("Request Error:", e)
         return ""
-
 
 def extract_profile(text):
     content = ""

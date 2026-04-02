@@ -4,7 +4,6 @@ import re
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-
 def extract_experience_years(text):
     matches = re.findall(r'(\d+)\+?\s*(years|yrs)', text.lower())
 
@@ -13,7 +12,6 @@ def extract_experience_years(text):
         return max(years)
 
     return 0
-
 
 def calculate_score(resume_text, jd_text):
     try:

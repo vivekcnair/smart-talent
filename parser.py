@@ -4,7 +4,6 @@ import pytesseract
 from PIL import Image
 import os
 
-
 def extract_pdf(file_path):
     text = ""
     pdf = fitz.open(file_path)
@@ -13,7 +12,6 @@ def extract_pdf(file_path):
         text += page.get_text()
 
     return text
-
 
 def extract_docx(file_path):
     doc = docx.Document(file_path)
@@ -24,13 +22,11 @@ def extract_docx(file_path):
 
     return text
 
-
 def extract_image(file_path):
     img = Image.open(file_path)
-    img = img.convert("L")  # improve OCR
+    img = img.convert("L")
     text = pytesseract.image_to_string(img)
     return text
-
 
 def extract_text(file_path):
     ext = os.path.splitext(file_path)[1].lower()
