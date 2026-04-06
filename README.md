@@ -8,23 +8,23 @@
 
 ## The Problem
 
-Traditional Applicant Tracking Systems rely on primitive keyword matching, causing recruiters to accidentally reject highly qualified candidates who use different but equivalent terminology. With hundreds of applicants per role, recruiters spend an average of just 6 seconds per resume — leading to missed talent and wasted effort reviewing unqualified candidates who have learned to "keyword stuff" their resumes to game the system.
+Traditional Applicant Tracking Systems rely on primitive keyword matching, causing recruiters to accidentally reject highly qualified candidates who use different but equivalent terminology. With hundreds of applicants per role, recruiters spend an average of just 6 seconds per resume — leading to missed talent and wasted effort reviewing unqualified candidates who have learned to keyword stuff their resumes to game the system.
 
 ---
 
 ## The Solution
 
-Smart Talent Engine automates resume screening using a three-component AI scoring system that goes far beyond keyword matching. Recruiters paste or upload a Job Description, bulk-upload resumes in any format, and receive a ranked shortlist with a compatibility score breakdown and an AI-written "Summary of Fit" for each top candidate.
+Smart Talent Engine automates resume screening using a three-component AI scoring system that goes far beyond keyword matching. Recruiters paste or upload a Job Description, bulk-upload resumes in any format, and receive a ranked shortlist with a compatibility score breakdown and an AI-written Summary of Fit for each top candidate.
 
 **Key Features:**
 
 - **Multi-format ingestion** — accepts PDF, DOCX, JPG, and PNG resumes with adaptive layout parsing for two-column designs, sidebars, and tables
 - **Three-component compatibility score** — combines semantic alignment (meaning-based similarity), skill match (regex + LLM-based skill detection), and experience depth (context-aware year extraction) into a single 0–100% score
-- **Candidate name extraction** — LLaMA extracts the candidate's full name from each resume so results show "Jane Smith" instead of a filename
+- **Candidate name extraction** — LLaMA extracts the candidate's full name from each resume so results show the actual name instead of a filename
 - **Keyword stuffing detection** — flags candidates who repeat skills without genuine work context, directly countering resume gaming
-- **AI-generated Summary of Fit** — LLaMA generates a 2-sentence evaluation for the top 5 candidates explaining exactly why they ranked highly, citing specific skills and experience
+- **AI-generated Summary of Fit** — LLaMA generates a 2-sentence evaluation for the top 5 candidates explaining why they ranked highly
 - **JD file upload** — job descriptions can be uploaded as PDF or DOCX files in addition to being typed
-- **Per-file progress tracking** — each resume shows individual processing progress with specific error messages for corrupt, empty, or unsupported files
+- **Ollama auto-management** — Ollama starts automatically when the app launches and can be stopped from the sidebar
 - **Batch organisation** — results are tagged with a Job Role label and Batch Date for organised CSV exports across multiple screening sessions
 
 ---
@@ -35,12 +35,12 @@ Smart Talent Engine automates resume screening using a three-component AI scorin
 - Python 3.10+
 
 **Frameworks & UI:**
-- Streamlit — web dashboard and user interface
+- Streamlit
 
 **AI & Machine Learning:**
 - Ollama (local) — runs LLaMA 3 locally for profile extraction, skill detection, and summary generation
-- LLaMA 3 (`llama3`) via Ollama — large language model for AI tasks
-- Sentence Transformers (`all-MiniLM-L6-v2`) — semantic text embedding model for meaning-based similarity
+- LLaMA 3 (`llama3`) via Ollama
+- Sentence Transformers (`all-MiniLM-L6-v2`) — semantic text embedding for meaning-based similarity
 - Scikit-learn — cosine similarity calculation
 
 **Document Parsing:**
@@ -110,9 +110,9 @@ requests
 
 ---
 
-### Step 4 — Install and Start Ollama
+### Step 4 — Install Ollama
 
-Download Ollama from [https://ollama.com/download](https://ollama.com/download) and install it.
+Download and install Ollama from [https://ollama.com/download](https://ollama.com/download).
 
 Then pull the LLaMA 3 model:
 
@@ -130,9 +130,9 @@ ollama pull llama3
 
 ### Step 5 — Install Tesseract OCR
 
-Tesseract is required only if you plan to upload image resumes (JPG/PNG).
+Required only if you plan to upload image resumes (JPG/PNG).
 
-- **Windows:** Download installer from [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
+- **Windows:** Download from [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
 - **macOS:** `brew install tesseract`
 - **Linux:** `sudo apt install tesseract-ocr`
 
@@ -140,11 +140,11 @@ Tesseract is required only if you plan to upload image resumes (JPG/PNG).
 
 ### Step 6 — Run the Application
 
-Make sure Ollama is running in the background, then start the app:
-
 ```bash
 streamlit run app.py
 ```
+
+Ollama will start automatically when the app launches. No need to run it separately.
 
 ---
 
@@ -164,7 +164,7 @@ smart-talent-engine/
 ├── app.py            ← Streamlit dashboard (UI, upload, results display)
 ├── parser.py         ← Resume text extraction (PDF, DOCX, image)
 ├── scorer.py         ← Scoring engine (semantic + skill + experience + stuffing detection)
-├── ai_engine.py      ← LLaMA API calls (profile extraction, skill detection, summary)
+├── ai_engine.py      ← LLaMA API calls + Ollama process management
 ├── requirements.txt  ← Python dependencies
 ├── resumes/          ← Uploaded resume files (auto-created)
 ├── jd_uploads/       ← Uploaded JD files (auto-created)
