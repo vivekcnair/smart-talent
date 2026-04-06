@@ -7,14 +7,27 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 from parser import extract_text
-from ai_engine import extract_profile, generate_summary
+from ai_engine import extract_profile, generate_summary, start_ollama, stop_ollama
 from scorer import calculate_score
 
 st.set_page_config(
     page_title="Smart Talent Engine",
     layout="wide",
-    page_icon="💼"
+    page_icon="💼",
+    menu_items={}
 )
+
+if "ollama_started" not in st.session_state:
+    st.session_state.ollama_started = False
+
+if not st.session_state.ollama_started:
+    with st.spinner("Starting Ollama..."):
+        ok = start_ollama()
+    if ok:
+        st.session_state.ollama_started = True
+    else:
+        st.error("Could not start Ollama. Make sure it is installed and 'ollama serve' works on your machine.")
+        st.stop()
 
 st.markdown("""
 <style>
@@ -148,6 +161,12 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption("Smart Talent Engine v2.1")
+
+    st.markdown("---")
+    if st.button("⏹ Stop Ollama", use_container_width=True):
+        stop_ollama()
+        st.session_state.ollama_started = False
+        st.success("Ollama stopped.")
 
 st.title("💼 Smart Talent Engine")
 st.caption("AI-powered Resume Screening & Ranking System")

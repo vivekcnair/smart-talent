@@ -1,17 +1,78 @@
 import requests
 import json
 import re
+import subprocess
+import time
+import platform
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
+_ollama_process = None
+
+
+def start_ollama():
+    global _ollama_process
+    try:
+        check = requests.get("http://localhost:11434", timeout=3)
+        if check.status_code == 200:
+            return True
+    except Exception:
+        pass
+
+    try:
+        system = platform.system()
+        if system == "Windows":
+            _ollama_process = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            _ollama_process = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+        for _ in range(15):
+            time.sleep(1)
+            try:
+                r = requests.get("http://localhost:11434", timeout=2)
+                if r.status_code == 200:
+                    return True
+            except Exception:
+                pass
+
+        return False
+
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def stop_ollama():
+    global _ollama_process
+    if _ollama_process is not None:
+        try:
+            _ollama_process.terminate()
+            _ollama_process.wait(timeout=5)
+        except Exception:
+            try:
+                _ollama_process.kill()
+            except Exception:
+                pass
+        _ollama_process = None
+
 
 def clean_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
-
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"&[a-z]+;", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
 
 def call_llama(prompt: str) -> str:
     try:
@@ -23,32 +84,28 @@ def call_llama(prompt: str) -> str:
                 "stream": False
             }
         )
-
         if response.status_code != 200:
             print("LLAMA ERROR:", response.text)
             return ""
-
         return response.json().get("response", "")
-
     except Exception as e:
         print(f"Request Error: {e}")
         return ""
 
+
 def extract_json(text: str) -> dict:
     try:
         text = re.sub(r"```(?:json)?", "", text).strip()
-
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             json_str = match.group()
             json_str = re.sub(r",\s*}", "}", json_str)
             json_str = re.sub(r",\s*]", "]", json_str)
             return json.loads(json_str)
-
     except Exception as e:
         print(f"JSON Parse Error: {e}")
-
     return {}
+
 
 def extract_profile(text: str) -> dict:
     prompt = f"""
@@ -71,7 +128,6 @@ Return ONLY JSON:
 Resume:
 {text[:3000]}
 """
-
     content = call_llama(prompt)
     data = extract_json(content)
 
@@ -98,6 +154,7 @@ Resume:
         "education": education or "Not found"
     }
 
+
 def extract_skills_llm(text: str) -> list:
     prompt = f"""
 Extract ONLY technical skills as a JSON list. Return ONLY the JSON list, no explanation, no markdown.
@@ -107,7 +164,6 @@ Example output: ["Python", "Docker", "PostgreSQL"]
 Text:
 {text[:2000]}
 """
-
     response = call_llama(prompt)
 
     if not response:
@@ -143,6 +199,7 @@ Text:
 
     return []
 
+
 def generate_summary(profile: dict, jd_text: str, score_breakdown: dict = None) -> str:
     skills = ", ".join([clean_text(s) for s in profile.get("skills", [])])
     experience = clean_text(profile.get("experience", ""))
@@ -175,7 +232,5 @@ STRICT RULES:
 
 Write a professional evaluation.
 """
-
     response = call_llama(prompt)
-
     return clean_text(response)
