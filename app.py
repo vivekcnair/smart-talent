@@ -3,23 +3,19 @@ import os
 import re
 import pandas as pd
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from parser import extract_text
 from ai_engine import extract_profile, generate_summary
 from scorer import calculate_score
 
-# ─────────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Smart Talent Engine",
     layout="wide",
     page_icon="💼"
 )
 
-# ─────────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────────
 st.markdown("""
 <style>
     .candidate-card {
@@ -50,9 +46,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
 def score_class(score: float) -> str:
     if score >= 70:
         return "score-high"
@@ -79,15 +72,59 @@ def sanitize(text) -> str:
     if not isinstance(text, str):
         text = str(text)
     text = re.sub(r"<[^>]+>", "", text)
-    text = text.replace("&", "&amp;")
-    text = text.replace("<", "&lt;").replace(">", "&gt;")
-    text = text.replace('"', "&quot;")
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("&amp;", "&")
+    text = text.replace("&lt;", "<").replace("&gt;", ">")
+    text = text.replace('"', "")
+    text = text.replace("'", "")
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
+def process_single_resume(file_path: str, file_name: str, jd_text: str, job_role: str) -> dict:
+    """
+    Runs inside a worker thread. Handles text extraction, profile extraction,
+    and scoring for one resume. Returns a result dict with either a candidate
+    record or an error/warning entry. Never touches Streamlit state.
+    """
+    try:
+        text, status = extract_text(file_path)
+
+        if not status["valid"]:
+            reason = status["reason"]
+            if reason == "unsupported_format":
+                return {"type": "error", "file_name": file_name, "reason": "Unsupported file format."}
+            elif reason == "empty":
+                return {"type": "warning", "file_name": file_name, "reason": "File is empty or contains no extractable text."}
+            elif reason.startswith("corrupt"):
+                return {"type": "error", "file_name": file_name, "reason": f"File appears corrupt or unreadable. ({reason})"}
+            else:
+                return {"type": "error", "file_name": file_name, "reason": reason}
+
+        profile = extract_profile(text)
+        breakdown = calculate_score(text, jd_text)
+
+        profile.update({
+            "file_name": file_name,
+            "job_role": job_role or "Untagged",
+            "batch_date": datetime.now().strftime("%Y-%m-%d"),
+            "score": breakdown["final"],
+            "semantic_score": breakdown["semantic"],
+            "skill_score": breakdown["skill"],
+            "experience_score": breakdown["experience"],
+            "exp_years": breakdown["exp_years"],
+            "keyword_stuffing": breakdown.get("keyword_stuffing", {}),
+            "summary": ""
+        })
+
+        return {"type": "success", "file_name": file_name, "candidate": profile}
+
+    except Exception as e:
+        return {"type": "error", "file_name": file_name, "reason": str(e)}
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+
 with st.sidebar:
     st.header("⚙️ Filters & Settings")
 
@@ -102,12 +139,27 @@ with st.sidebar:
     min_score = st.slider("Minimum Compatibility Score (%)", 0, 100, 0)
 
     st.markdown("---")
-    st.caption("Smart Talent Engine v2.0")
+    st.subheader("⚡ Performance")
+    max_workers = st.slider(
+        "Parallel Workers",
+        min_value=1,
+        max_value=6,
+        value=3,
+        help=(
+            "How many resumes to process at the same time.\n\n"
+            "• 1–2 workers → safest, lowest RAM (~50–100 MB extra)\n"
+            "• 3 workers → good balance (recommended)\n"
+            "• 4–6 workers → fastest, needs 8 GB+ RAM\n\n"
+            "Ollama LLM calls are always sequential regardless of this setting."
+        )
+    )
+
+    st.markdown("---")
+    st.caption("Smart Talent Engine v2.1")
 
 
-# ─────────────────────────────────────────────
-# HEADER
-# ─────────────────────────────────────────────
+# ── Main UI ───────────────────────────────────────────────────────────────────
+
 st.title("💼 Smart Talent Engine")
 st.caption("AI-powered Resume Screening & Ranking System")
 
@@ -117,9 +169,6 @@ if job_role:
 
 st.markdown("---")
 
-# ─────────────────────────────────────────────
-# JD INPUT — TYPE OR UPLOAD
-# ─────────────────────────────────────────────
 st.subheader("📌 Job Description")
 
 jd_input_method = st.radio(
@@ -161,9 +210,6 @@ else:
             st.error(f"❌ Could not read JD file: {jd_status['reason']}")
             jd_text = ""
 
-# ─────────────────────────────────────────────
-# RESUME UPLOAD
-# ─────────────────────────────────────────────
 st.markdown("---")
 st.subheader("📤 Upload Resumes")
 st.caption("Accepted formats: PDF, DOCX, JPG, PNG")
@@ -179,9 +225,6 @@ if uploaded_files:
 
 st.markdown("---")
 
-# ─────────────────────────────────────────────
-# PROCESS BUTTON
-# ─────────────────────────────────────────────
 if st.button("🚀 Screen Resumes", use_container_width=True):
 
     if not jd_text.strip():
@@ -194,63 +237,84 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
 
     os.makedirs("resumes", exist_ok=True)
 
+    # ── Step 1: Save all files to disk on the main thread ─────────────────
+    # Streamlit's UploadedFile objects must be read on the main thread before
+    # being handed off to workers. Workers receive only the disk path.
+    saved_files = []
+    for file in uploaded_files:
+        file_path = os.path.join("resumes", file.name)
+        try:
+            with open(file_path, "wb") as f:
+                f.write(file.getbuffer())
+            saved_files.append((file_path, file.name))
+        except Exception as e:
+            st.warning(f"⚠️ Could not save **{file.name}**: {e}")
+
+    if not saved_files:
+        st.error("No files could be saved. Please try again.")
+        st.stop()
+
+    # ── Step 2: Process resumes in parallel ───────────────────────────────
+    total = len(saved_files)
     all_candidates = []
     file_errors = []
     file_warnings = []
 
-    total = len(uploaded_files)
-    progress_bar = st.progress(0, text="Starting…")
+    completed_count = 0
+
+    progress_bar = st.progress(0, text=f"Processing 0 / {total}…")
     status_text = st.empty()
 
-    for idx, file in enumerate(uploaded_files):
-        pct = int((idx / total) * 100)
-        progress_bar.progress(pct, text=f"Processing {file.name} ({idx+1}/{total})…")
-        status_text.markdown(f"⏳ **{file.name}**")
+    if max_workers > 1:
+        status_text.markdown(
+            f"⚡ Running with **{max_workers} parallel workers** — "
+            f"progress updates as each resume finishes."
+        )
+    else:
+        status_text.markdown("⏳ Processing resumes one at a time…")
 
-        file_path = os.path.join("resumes", file.name)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all jobs and keep a map of future → filename for error reporting
+        futures_map = {
+            executor.submit(
+                process_single_resume,
+                file_path,
+                file_name,
+                jd_text,
+                job_role
+            ): file_name
+            for file_path, file_name in saved_files
+        }
 
-        try:
-            with open(file_path, "wb") as f:
-                f.write(file.getbuffer())
+        # as_completed yields each future the moment its worker finishes,
+        # so the progress bar advances in real time rather than at the end.
+        for future in as_completed(futures_map):
+            file_name = futures_map[future]
+            completed_count += 1
 
-            text, status = extract_text(file_path)
+            pct = int((completed_count / total) * 100)
+            progress_bar.progress(
+                pct,
+                text=f"Processed {completed_count} / {total} — last finished: {file_name}"
+            )
 
-            if not status["valid"]:
-                reason = status["reason"]
-                if reason == "unsupported_format":
-                    file_errors.append((file.name, "Unsupported file format."))
-                elif reason == "empty":
-                    file_warnings.append((file.name, "File is empty or contains no extractable text."))
-                elif reason.startswith("corrupt"):
-                    file_errors.append((file.name, f"File appears corrupt or unreadable. ({reason})"))
-                else:
-                    file_errors.append((file.name, reason))
+            try:
+                result = future.result()
+            except Exception as e:
+                file_errors.append((file_name, str(e)))
                 continue
 
-            profile = extract_profile(text)
-            breakdown = calculate_score(text, jd_text)
+            if result["type"] == "success":
+                all_candidates.append(result["candidate"])
+            elif result["type"] == "warning":
+                file_warnings.append((result["file_name"], result["reason"]))
+            else:
+                file_errors.append((result["file_name"], result["reason"]))
 
-            profile.update({
-                "file_name":         file.name,
-                "job_role":          job_role or "Untagged",
-                "batch_date":        datetime.now().strftime("%Y-%m-%d"),
-                "score":             breakdown["final"],
-                "semantic_score":    breakdown["semantic"],
-                "skill_score":       breakdown["skill"],
-                "experience_score":  breakdown["experience"],
-                "exp_years":         breakdown["exp_years"],
-                "keyword_stuffing":  breakdown.get("keyword_stuffing", {}),
-                "summary":           ""
-            })
-
-            all_candidates.append(profile)
-
-        except Exception as e:
-            file_errors.append((file.name, str(e)))
-
-    progress_bar.progress(100, text="Processing complete ✅")
+    progress_bar.progress(100, text=f"Done — {total} file(s) processed ✅")
     status_text.empty()
 
+    # ── Step 3: Surface errors and warnings ───────────────────────────────
     if file_errors:
         with st.expander(f"❌ {len(file_errors)} file(s) could not be processed", expanded=True):
             for fname, reason in file_errors:
@@ -271,6 +335,7 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         st.error("No valid resumes were processed. Please check the files and try again.")
         st.stop()
 
+    # ── Step 4: Rank candidates ────────────────────────────────────────────
     df = pd.DataFrame(all_candidates)
     df = df.sort_values(by="score", ascending=False).reset_index(drop=True)
     df = df[df["score"] >= min_score]
@@ -279,24 +344,26 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         st.warning("No candidates match the current filters.")
         st.stop()
 
-    # ── Generate summaries ONLY for top 5 ──
+    # ── Step 5: Generate AI summaries for top 5 (sequential — Ollama queues)
     top5_indices = df.head(5).index.tolist()
     summary_status = st.empty()
 
     for i, row_idx in enumerate(top5_indices):
-        summary_status.markdown(f"✍️ Generating AI summary for candidate {i+1} of {min(5, len(top5_indices))}…")
+        summary_status.markdown(
+            f"✍️ Generating AI summary for candidate {i+1} of {min(5, len(top5_indices))}…"
+        )
         row = df.loc[row_idx]
         breakdown = {
-            "semantic":   row["semantic_score"],
-            "skill":      row["skill_score"],
+            "semantic": row["semantic_score"],
+            "skill": row["skill_score"],
             "experience": row["experience_score"],
-            "final":      row["score"]
+            "final": row["score"]
         }
         summary = generate_summary(
             profile={
-                "skills":     row["skills"],
+                "skills": row["skills"],
                 "experience": row["experience"],
-                "education":  row["education"]
+                "education": row["education"]
             },
             jd_text=jd_text,
             score_breakdown=breakdown
@@ -305,9 +372,7 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
 
     summary_status.empty()
 
-    # ─────────────────────────────────────────
-    # METRICS ROW
-    # ─────────────────────────────────────────
+    # ── Step 6: Display results ────────────────────────────────────────────
     st.success(f"✅ {len(df)} candidate(s) ranked successfully.")
     st.markdown("---")
 
@@ -326,9 +391,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
             unsafe_allow_html=True
         )
 
-    # ─────────────────────────────────────────
-    # TOP 5 CANDIDATE CARDS
-    # ─────────────────────────────────────────
     st.markdown("---")
     st.subheader("🏆 Top Candidates")
 
@@ -336,17 +398,19 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         skills = row["skills"] if isinstance(row["skills"], list) else []
         sc = score_class(row["score"])
 
-        safe_summary    = sanitize(row["summary"])
+        safe_summary = sanitize(row["summary"])
         safe_experience = sanitize(row["experience"])
-        safe_education  = sanitize(row["education"])
-        safe_filename   = sanitize(row["file_name"])
+        safe_education = sanitize(row["education"])
+        safe_filename = sanitize(row["file_name"])
+
+        candidate_name = sanitize(row.get("name", ""))
+        display_name = candidate_name if candidate_name and candidate_name != "Unknown" else safe_filename
 
         summary_html = (
             f'<p style="margin:8px 0 0 0;font-size:0.9em;color:#333;">'
             f'<b>AI Summary:</b> {safe_summary}</p>'
         ) if safe_summary else ""
 
-        # Keyword stuffing warning
         ks = row.get("keyword_stuffing", {})
         if isinstance(ks, dict) and ks.get("flagged"):
             stuffing_html = (
@@ -359,10 +423,15 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         else:
             stuffing_html = ""
 
+        filename_sub = (
+            f'<span style="font-size:0.78em;color:#888;font-weight:400;margin-left:8px;">'
+            f'{safe_filename}</span>'
+        ) if display_name != safe_filename else ""
+
         st.markdown(f"""
         <div class="candidate-card">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <h4 style="margin:0;">#{rank} &nbsp; {safe_filename}</h4>
+            <h4 style="margin:0;">#{rank} &nbsp; {display_name}{filename_sub}</h4>
             <span class="score-badge {sc}">{row['score']:.1f}%</span>
           </div>
 
@@ -394,14 +463,11 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         </div>
         """, unsafe_allow_html=True)
 
-    # ─────────────────────────────────────────
-    # FULL RESULTS TABLE
-    # ─────────────────────────────────────────
     st.markdown("---")
     st.subheader("📋 All Candidates")
 
     display_cols = [
-        "file_name", "job_role", "batch_date", "score",
+        "name", "file_name", "job_role", "batch_date", "score",
         "semantic_score", "skill_score", "experience_score",
         "exp_years", "experience", "education"
     ]
@@ -409,24 +475,22 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
 
     st.dataframe(
         df[display_cols].rename(columns={
-            "file_name":        "Resume",
-            "job_role":         "Job Role",
-            "batch_date":       "Batch Date",
-            "score":            "Score (%)",
-            "semantic_score":   "Semantic (%)",
-            "skill_score":      "Skill (%)",
+            "name": "Candidate",
+            "file_name": "Resume",
+            "job_role": "Job Role",
+            "batch_date": "Batch Date",
+            "score": "Score (%)",
+            "semantic_score": "Semantic (%)",
+            "skill_score": "Skill (%)",
             "experience_score": "Exp. Score (%)",
-            "exp_years":        "Years Exp.",
-            "experience":       "Experience Summary",
-            "education":        "Education"
+            "exp_years": "Years Exp.",
+            "experience": "Experience Summary",
+            "education": "Education"
         }),
         use_container_width=True,
         height=400
     )
 
-    # ─────────────────────────────────────────
-    # DOWNLOAD
-    # ─────────────────────────────────────────
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
         "📥 Download Full Results (CSV)",
