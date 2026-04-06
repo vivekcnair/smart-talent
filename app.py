@@ -45,14 +45,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 def score_class(score: float) -> str:
     if score >= 70:
         return "score-high"
     elif score >= 45:
         return "score-mid"
     return "score-low"
-
 
 def mini_bar(value: float, color: str = "#4a90e2") -> str:
     pct = min(max(value, 0), 100)
@@ -61,12 +59,10 @@ def mini_bar(value: float, color: str = "#4a90e2") -> str:
         f'<div style="background:{color};width:{pct}%;height:7px;border-radius:4px;"></div></div>'
     )
 
-
 def format_skills(skills) -> str:
     if not isinstance(skills, list):
         return "—"
     return "".join(f'<span class="tag">{sanitize(s)}</span>' for s in skills[:12])
-
 
 def sanitize(text) -> str:
     if not isinstance(text, str):
@@ -79,7 +75,6 @@ def sanitize(text) -> str:
     text = text.replace("'", "")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
-
 
 def process_single_resume(file_path: str, file_name: str, jd_text: str, job_role: str) -> dict:
     """
@@ -122,9 +117,6 @@ def process_single_resume(file_path: str, file_name: str, jd_text: str, job_role
     except Exception as e:
         return {"type": "error", "file_name": file_name, "reason": str(e)}
 
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-
 with st.sidebar:
     st.header("⚙️ Filters & Settings")
 
@@ -156,9 +148,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption("Smart Talent Engine v2.1")
-
-
-# ── Main UI ───────────────────────────────────────────────────────────────────
 
 st.title("💼 Smart Talent Engine")
 st.caption("AI-powered Resume Screening & Ranking System")
@@ -237,9 +226,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
 
     os.makedirs("resumes", exist_ok=True)
 
-    # ── Step 1: Save all files to disk on the main thread ─────────────────
-    # Streamlit's UploadedFile objects must be read on the main thread before
-    # being handed off to workers. Workers receive only the disk path.
     saved_files = []
     for file in uploaded_files:
         file_path = os.path.join("resumes", file.name)
@@ -254,7 +240,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         st.error("No files could be saved. Please try again.")
         st.stop()
 
-    # ── Step 2: Process resumes in parallel ───────────────────────────────
     total = len(saved_files)
     all_candidates = []
     file_errors = []
@@ -274,7 +259,7 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         status_text.markdown("⏳ Processing resumes one at a time…")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all jobs and keep a map of future → filename for error reporting
+
         futures_map = {
             executor.submit(
                 process_single_resume,
@@ -286,8 +271,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
             for file_path, file_name in saved_files
         }
 
-        # as_completed yields each future the moment its worker finishes,
-        # so the progress bar advances in real time rather than at the end.
         for future in as_completed(futures_map):
             file_name = futures_map[future]
             completed_count += 1
@@ -314,7 +297,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
     progress_bar.progress(100, text=f"Done — {total} file(s) processed ✅")
     status_text.empty()
 
-    # ── Step 3: Surface errors and warnings ───────────────────────────────
     if file_errors:
         with st.expander(f"❌ {len(file_errors)} file(s) could not be processed", expanded=True):
             for fname, reason in file_errors:
@@ -335,7 +317,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         st.error("No valid resumes were processed. Please check the files and try again.")
         st.stop()
 
-    # ── Step 4: Rank candidates ────────────────────────────────────────────
     df = pd.DataFrame(all_candidates)
     df = df.sort_values(by="score", ascending=False).reset_index(drop=True)
     df = df[df["score"] >= min_score]
@@ -344,7 +325,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
         st.warning("No candidates match the current filters.")
         st.stop()
 
-    # ── Step 5: Generate AI summaries for top 5 (sequential — Ollama queues)
     top5_indices = df.head(5).index.tolist()
     summary_status = st.empty()
 
@@ -372,7 +352,6 @@ if st.button("🚀 Screen Resumes", use_container_width=True):
 
     summary_status.empty()
 
-    # ── Step 6: Display results ────────────────────────────────────────────
     st.success(f"✅ {len(df)} candidate(s) ranked successfully.")
     st.markdown("---")
 

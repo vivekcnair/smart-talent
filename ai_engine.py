@@ -4,16 +4,14 @@ import re
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
-
 def clean_text(text: str) -> str:
     if not isinstance(text, str):
         return ""
 
-    text = re.sub(r"<[^>]+>", "", text)   # remove HTML tags
-    text = re.sub(r"&[a-z]+;", "", text)  # remove HTML entities
-    text = re.sub(r"\s+", " ", text)      # normalize spaces
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"&[a-z]+;", "", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
-
 
 def call_llama(prompt: str) -> str:
     try:
@@ -36,7 +34,6 @@ def call_llama(prompt: str) -> str:
         print(f"Request Error: {e}")
         return ""
 
-
 def extract_json(text: str) -> dict:
     try:
         text = re.sub(r"```(?:json)?", "", text).strip()
@@ -52,7 +49,6 @@ def extract_json(text: str) -> dict:
         print(f"JSON Parse Error: {e}")
 
     return {}
-
 
 def extract_profile(text: str) -> dict:
     prompt = f"""
@@ -102,7 +98,6 @@ Resume:
         "education": education or "Not found"
     }
 
-
 def extract_skills_llm(text: str) -> list:
     prompt = f"""
 Extract ONLY technical skills as a JSON list. Return ONLY the JSON list, no explanation, no markdown.
@@ -118,11 +113,9 @@ Text:
     if not response:
         return []
 
-    # Step 1: strip markdown fences
     response = re.sub(r"```(?:json)?", "", response).strip()
     response = response.replace("```", "").strip()
 
-    # Step 2: try direct parse as a list
     try:
         result = json.loads(response)
         if isinstance(result, list):
@@ -130,7 +123,6 @@ Text:
     except Exception:
         pass
 
-    # Step 3: try extracting a JSON array with regex (reuse extract_json-style repair)
     try:
         match = re.search(r"\[.*?\]", response, re.DOTALL)
         if match:
@@ -142,7 +134,6 @@ Text:
     except Exception:
         pass
 
-    # Step 4: last resort — extract quoted strings from the response
     try:
         found = re.findall(r'"([^"]{2,50})"', response)
         if found:
@@ -151,7 +142,6 @@ Text:
         pass
 
     return []
-
 
 def generate_summary(profile: dict, jd_text: str, score_breakdown: dict = None) -> str:
     skills = ", ".join([clean_text(s) for s in profile.get("skills", [])])

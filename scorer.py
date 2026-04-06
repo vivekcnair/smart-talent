@@ -19,7 +19,6 @@ _EDUCATION_KEYWORDS = re.compile(
     r"pursuing|graduated|graduation|class of|passing year)\b"
 )
 
-
 def extract_experience_years(text: str) -> float:
     text_lower = text.lower()
     candidates = []
@@ -86,7 +85,6 @@ def extract_experience_years(text: str) -> float:
 
     return 0.0
 
-
 def experience_score(exp_years: float) -> float:
     if exp_years <= 0:
         return 0.0
@@ -100,7 +98,6 @@ def experience_score(exp_years: float) -> float:
         return 85.0 + ((exp_years - 5.0) / 5.0) * 15.0
     else:
         return 100.0
-
 
 _SKILL_PATTERNS = [
     ("python",          r"\bpython\b"),
@@ -188,7 +185,6 @@ _SKILL_PATTERNS = [
 
 _COMPILED_PATTERNS = [(name, re.compile(pattern)) for name, pattern in _SKILL_PATTERNS]
 
-
 def _extract_keyword_skills(text: str) -> list:
     text_lower = text.lower()
     found = set()
@@ -196,7 +192,6 @@ def _extract_keyword_skills(text: str) -> list:
         if pattern.search(text_lower):
             found.add(name)
     return list(found)
-
 
 def _extract_combined_skills(text: str) -> list:
     keyword_skills = _extract_keyword_skills(text)
@@ -223,7 +218,6 @@ def _extract_combined_skills(text: str) -> list:
     combined = set(keyword_skills) | llm_normalised
     return list(combined)
 
-
 def skill_match_score(resume_text: str, jd_text: str) -> float:
     resume_skills = _extract_combined_skills(resume_text)
     jd_skills = _extract_combined_skills(jd_text)
@@ -235,7 +229,6 @@ def skill_match_score(resume_text: str, jd_text: str) -> float:
     base = (len(matched) / len(jd_skills)) * 100
 
     return min(base * 1.15, 100.0)
-
 
 def detect_keyword_stuffing(resume_text: str) -> dict:
     lines = resume_text.lower().split("\n")
@@ -275,7 +268,6 @@ def detect_keyword_stuffing(resume_text: str) -> dict:
         ) if flagged else ""
     }
 
-
 def calculate_score(resume_text: str, jd_text: str) -> dict:
     zero = {
         "semantic": 0.0, "skill": 0.0, "experience": 0.0,
@@ -306,8 +298,6 @@ def calculate_score(resume_text: str, jd_text: str) -> dict:
         if semantic < 25:
             exp *= 0.65
 
-        # Weights: Semantic 25% | Skill 35% | Experience 40%
-        # (matches the scoring table documented in README.md)
         final = round(
             0.25 * semantic +
             0.35 * skill +

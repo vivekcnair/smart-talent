@@ -7,7 +7,6 @@ import zipfile
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
 
-
 def validate_file(file_path):
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -38,7 +37,6 @@ def validate_file(file_path):
 
     return {"valid": True, "reason": "ok"}
 
-
 def _detect_column_threshold(blocks, page_width):
     x_starts = sorted(set(round(b[0] / 10) * 10 for b in blocks))
 
@@ -52,7 +50,6 @@ def _detect_column_threshold(blocks, page_width):
             threshold = (x_starts[i] + x_starts[i - 1]) / 2
 
     return threshold
-
 
 def _extract_page_text(page):
     try:
@@ -99,7 +96,6 @@ def _extract_page_text(page):
     except Exception:
         return page.get_text()
 
-
 def extract_pdf(file_path):
     text = ""
     try:
@@ -111,18 +107,16 @@ def extract_pdf(file_path):
         raise RuntimeError(f"PDF extraction failed: {e}")
     return text
 
-
 def extract_docx(file_path):
     try:
         doc = docx.Document(file_path)
         parts = []
 
-        # Single pass over the document body — preserves order of paragraphs and tables
         for element in doc.element.body:
             tag = element.tag.split("}")[-1]
 
             if tag == "p":
-                # Collect text from all runs in this paragraph
+
                 para_text = "".join(
                     run.text for run in element.iterchildren()
                     if run.tag.split("}")[-1] == "r"
@@ -153,7 +147,6 @@ def extract_docx(file_path):
     except Exception as e:
         raise RuntimeError(f"DOCX extraction failed: {e}")
 
-
 def extract_image(file_path):
     try:
         img = Image.open(file_path).convert("L")
@@ -172,7 +165,6 @@ def extract_image(file_path):
 
     except Exception as e:
         raise RuntimeError(f"Image OCR failed: {e}")
-
 
 def extract_text(file_path):
     status = validate_file(file_path)
