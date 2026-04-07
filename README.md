@@ -19,13 +19,52 @@ Smart Talent Engine automates resume screening using a three-component AI scorin
 **Key Features:**
 
 - **Multi-format ingestion** — accepts PDF, DOCX, JPG, and PNG resumes with adaptive layout parsing for two-column designs, sidebars, and tables
-- **Three-component compatibility score** — combines semantic alignment (meaning-based similarity), skill match (regex + LLM-based skill detection), and experience depth (context-aware year extraction) into a single 0–100% score
+- **Three-component compatibility score** — combines semantic alignment, skill match, and experience depth into a single 0–100% score
 - **Candidate name extraction** — LLaMA extracts the candidate's full name from each resume so results show the actual name instead of a filename
 - **Keyword stuffing detection** — flags candidates who repeat skills without genuine work context, directly countering resume gaming
 - **AI-generated Summary of Fit** — LLaMA generates a 2-sentence evaluation for the top 5 candidates explaining why they ranked highly
-- **JD file upload** — job descriptions can be uploaded as PDF or DOCX files in addition to being typed
+- **JD file upload** — job descriptions can be uploaded as PDF or DOCX in addition to being typed
 - **Ollama auto-management** — Ollama starts automatically when the app launches and can be stopped from the sidebar
-- **Batch organisation** — results are tagged with a Job Role label and Batch Date for organised CSV exports across multiple screening sessions
+- **Parallel processing** — multiple resumes are processed simultaneously with a configurable worker count
+- **Batch organisation** — results are tagged with a Job Role label and Batch Date for organised CSV exports
+
+---
+
+## How the Scoring Works
+
+Each resume is evaluated against the Job Description using three components that are combined into a final compatibility score.
+
+### 1. Semantic Alignment (25%)
+
+The full resume text and JD are each converted into a numerical vector using the `all-MiniLM-L6-v2` sentence embedding model. Cosine similarity is then measured between the two vectors — this captures meaning-level relevance rather than just word overlap. A resume that says "built distributed systems" and a JD that says "microservices architecture" will still score well here even though the exact words differ.
+
+### 2. Skill Match (35%)
+
+Skills are extracted from both the resume and JD using two methods combined — a regex pattern library covering 80+ technologies, and LLaMA-based extraction to catch skills the regex might miss. The matched skills are compared and scored as a percentage of the JD's required skills, with a small bonus for exceeding the requirement. This is the most reliable signal and carries the highest weight.
+
+### 3. Experience Depth (40%)
+
+Experience years are extracted using context-aware parsing — the system looks for year mentions, date ranges, and duration phrases only near work-related keywords like "role", "developer", "employment", etc. to avoid counting education years. If a total experience figure is explicitly stated it is used directly; otherwise date ranges across roles are merged and summed. The raw years are then converted to a score on a non-linear curve that rewards early career growth more steeply:
+
+| Experience | Score |
+|---|---|
+| 1 year | 50% |
+| 2 years | 60% |
+| 3 years | 68% |
+| 5 years | 85% |
+| 10 years | 100% |
+
+Experience carries the highest weight because it is the hardest signal to fake.
+
+### Relevance Penalty
+
+If a candidate's skill match score is below 30%, their experience score is partially penalised — a strong penalty at under 15% skill match and a mild penalty between 15–30%. This ensures that candidates with many years of experience in an unrelated field do not rank above genuinely relevant candidates with fewer years.
+
+### Final Score
+
+```
+Final = (0.25 × Semantic) + (0.35 × Skill) + (0.40 × Experience)
+```
 
 ---
 
@@ -38,21 +77,22 @@ Smart Talent Engine automates resume screening using a three-component AI scorin
 - Streamlit
 
 **AI & Machine Learning:**
-- Ollama (local) — runs LLaMA 3 locally for profile extraction, skill detection, and summary generation
-- LLaMA 3 (`llama3`) via Ollama
-- Sentence Transformers (`all-MiniLM-L6-v2`) — semantic text embedding for meaning-based similarity
+- Ollama — runs LLaMA 3 locally for profile extraction, skill detection, and summary generation
+- LLaMA 3 (`llama3`) via Ollama API
+- Sentence Transformers (`all-MiniLM-L6-v2`) — semantic text embeddings
 - Scikit-learn — cosine similarity calculation
 
 **Document Parsing:**
-- PyMuPDF (`fitz`) — PDF text extraction with adaptive multi-column layout detection
+- PyMuPDF (`fitz`) — PDF extraction with adaptive multi-column layout detection
 - python-docx — DOCX parsing including tables
-- pytesseract + Pillow — OCR for image resumes with contrast enhancement and upscaling
+- pytesseract + Pillow — OCR for image resumes with contrast enhancement
 
 **Data Handling:**
 - Pandas — candidate data management, filtering, and CSV export
 
 **Other:**
 - Regex (`re`) — context-aware experience extraction and skill pattern matching
+- concurrent.futures — parallel resume processing
 
 ---
 
@@ -62,7 +102,7 @@ Smart Talent Engine automates resume screening using a three-component AI scorin
 
 - Python 3.10 or higher
 - [Ollama](https://ollama.com/download) installed on your machine
-- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed (for image resumes)
+- [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed (only needed for JPG/PNG resumes)
 
 ---
 
@@ -95,32 +135,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**requirements.txt:**
-```
-streamlit
-pymupdf
-python-docx
-pytesseract
-Pillow
-sentence-transformers
-scikit-learn
-pandas
-requests
-```
-
 ---
 
-### Step 4 — Install Ollama
-
-Download and install Ollama from [https://ollama.com/download](https://ollama.com/download).
-
-Then pull the LLaMA 3 model:
+### Step 4 — Pull the LLaMA 3 Model
 
 ```bash
 ollama pull llama3
 ```
 
-> **Note:** If your machine has less than 3.5 GB of free RAM, use the smaller model instead:
+> If your machine has less than 3.5 GB of free RAM, use the smaller model instead:
 > ```bash
 > ollama pull llama3.2:3b
 > ```
@@ -128,9 +151,9 @@ ollama pull llama3
 
 ---
 
-### Step 5 — Install Tesseract OCR
+### Step 5 — Install Tesseract OCR (optional)
 
-Required only if you plan to upload image resumes (JPG/PNG).
+Only required if you plan to upload image resumes (JPG/PNG).
 
 - **Windows:** Download from [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
 - **macOS:** `brew install tesseract`
@@ -144,7 +167,7 @@ Required only if you plan to upload image resumes (JPG/PNG).
 streamlit run app.py
 ```
 
-Ollama will start automatically when the app launches. No need to run it separately.
+Ollama starts automatically when the app launches. No need to run it separately in another terminal.
 
 ---
 
@@ -172,15 +195,3 @@ smart-talent-engine/
 ```
 
 ---
-
-## How the Scoring Works
-
-Each resume is scored against the JD using three components:
-
-| Component | Weight | Method |
-|---|---|---|
-| Semantic Alignment | 25% | `all-MiniLM-L6-v2` embeddings + cosine similarity between resume and JD |
-| Skill Match | 35% | Regex pattern matching + LLaMA skill extraction, compared against JD skills |
-| Experience Depth | 40% | Context-aware date/duration extraction near work keywords, non-linear scoring curve |
-
-**Final Score = 0.25 × Semantic + 0.35 × Skill + 0.40 × Experience**

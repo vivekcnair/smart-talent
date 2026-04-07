@@ -21,11 +21,13 @@ _EDUCATION_KEYWORDS = re.compile(
 
 def extract_experience_years(text: str) -> float:
     text_lower = text.lower()
-    candidates = []
-
     lines = text_lower.split("\n")
 
-    def _near_work_context(idx: int, window: int = 4) -> bool:
+    explicit_total = None
+    date_ranges = []
+    role_years = []
+
+    def _near_work_context(idx: int, window: int = 6) -> bool:
         start = max(0, idx - window)
         end = min(len(lines), idx + window + 1)
         for i in range(start, end):
@@ -36,6 +38,11 @@ def extract_experience_years(text: str) -> float:
     def _is_education_line(line: str) -> bool:
         return bool(_EDUCATION_KEYWORDS.search(line))
 
+    _TOTAL_KEYWORDS = re.compile(
+        r"\b(total|overall|aggregate|cumulative|combined|"
+        r"over|more than|greater than|\d+\+)\b"
+    )
+
     for idx, line in enumerate(lines):
         if _is_education_line(line):
             continue
@@ -44,13 +51,18 @@ def extract_experience_years(text: str) -> float:
             val = float(m.group(1))
             if val <= 0 or val > 50:
                 continue
-            if _near_work_context(idx):
-                candidates.append(val)
+            if not _near_work_context(idx):
+                continue
+            if _TOTAL_KEYWORDS.search(line) or "experience" in line or "total" in line:
+                if explicit_total is None or val > explicit_total:
+                    explicit_total = val
+            else:
+                role_years.append(val)
 
         for m in re.finditer(r"(\d+)\s*(?:months?|mos?)\b", line):
             val = int(m.group(1)) / 12.0
             if _near_work_context(idx):
-                candidates.append(val)
+                role_years.append(val)
 
         word_map = {
             "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -59,9 +71,13 @@ def extract_experience_years(text: str) -> float:
         }
         for word, val in word_map.items():
             if re.search(rf"\b{word}\s+months?\b", line) and _near_work_context(idx):
-                candidates.append(val / 12.0)
+                role_years.append(val / 12.0)
             if re.search(rf"\b{word}\s+years?\b", line) and _near_work_context(idx):
-                candidates.append(float(val))
+                if "experience" in line or "total" in line:
+                    if explicit_total is None or float(val) > explicit_total:
+                        explicit_total = float(val)
+                else:
+                    role_years.append(float(val))
 
         if not _near_work_context(idx):
             continue
@@ -71,17 +87,32 @@ def extract_experience_years(text: str) -> float:
             line
         ):
             try:
-                start = int(m.group(1))
+                start_yr = int(m.group(1))
                 end_str = m.group(2)
-                end = 2026 if end_str in ("present", "now", "current") else int(end_str)
-                duration = end - start
-                if 1990 <= start <= 2026 and 0 < duration <= 20:
-                    candidates.append(float(duration))
+                end_yr = 2026 if end_str in ("present", "now", "current") else int(end_str)
+                duration = end_yr - start_yr
+                if 1990 <= start_yr <= 2026 and 0 < duration <= 20:
+                    date_ranges.append((start_yr, end_yr, duration))
             except ValueError:
                 pass
 
-    if candidates:
-        return round(max(candidates), 1)
+    if explicit_total is not None:
+        return round(min(explicit_total, 50.0), 1)
+
+    if date_ranges:
+        date_ranges.sort(key=lambda x: x[0])
+        merged = []
+        for s, e, _ in date_ranges:
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append([s, e])
+        total_from_dates = sum(e - s for s, e in merged)
+        if total_from_dates > 0:
+            return round(min(float(total_from_dates), 50.0), 1)
+
+    if role_years:
+        return round(min(sum(role_years), 50.0), 1)
 
     return 0.0
 
@@ -295,8 +326,10 @@ def calculate_score(resume_text: str, jd_text: str) -> dict:
         exp_years = extract_experience_years(r_text)
         exp = experience_score(exp_years)
 
-        if semantic < 25:
+        if skill < 15:
             exp *= 0.65
+        elif skill < 30:
+            exp *= 0.85
 
         final = round(
             0.25 * semantic +
